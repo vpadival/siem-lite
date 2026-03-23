@@ -1,0 +1,59 @@
+# Docker Compose file for SIEM-lite
+# This file defines services for Promtail, Loki, and Grafana.
+
+networks:
+  siem-net:
+    driver: bridge
+
+volumes:
+  loki-data:
+  grafana-data:
+
+services:
+  loki:
+    image: grafana/loki:2.8.2 # Pin to a stable version
+    container_name: loki
+    ports:
+      - "3100:3100"
+    networks:
+      - siem-net
+    volumes:
+      - loki-data:/loki
+      - ./config/loki-config.yml:/etc/loki/local-config.yaml
+    command: -config.file=/etc/loki/local-config.yaml
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+
+  promtail:
+    image: grafana/promtail:2.8.2 # Pin to a stable version
+    container_name: promtail
+    networks:
+      - siem-net
+    volumes:
+      - /var/log:/var/log:ro
+      - ./config/promtail-config.yml:/etc/promtail/config.yml:ro
+    command: -config.file=/etc/promtail/config.yml
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+
+  grafana:
+    image: grafana/grafana:9.5.2 # Pin to a stable version
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - siem-net
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./config/grafana-provisioning:/etc/grafana/provisioning
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    deploy:
+      resources:
+        limits:
+          memory: 256M

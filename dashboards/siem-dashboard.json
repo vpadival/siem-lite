@@ -1,0 +1,145 @@
+{
+  "dashboard": {
+    "id": null,
+    "panels": [
+      {
+        "datasource": {
+          "type": "loki",
+          "uid": "bb962b48-6784-46b2-9baf-57b3c115a4cf"
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 0
+        },
+        "id": 1,
+        "targets": [
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "bb962b48-6784-46b2-9baf-57b3c115a4cf"
+            },
+            "expr": "sum by (logfile) (count_over_time({job=~\"auth_logs|syslog\"}[5m]))",
+            "refId": "A"
+          }
+        ],
+        "title": "Log Volume Over Time",
+        "type": "timeseries"
+      },
+      {
+        "datasource": {
+          "type": "loki",
+          "uid": "bb962b48-6784-46b2-9baf-57b3c115a4cf"
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 0
+        },
+        "id": 2,
+        "targets": [
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "bb962b48-6784-46b2-9baf-57b3c115a4cf"
+            },
+            "expr": "sum(count_over_time({job=\"auth_logs\"} |= \"Failed password\" [5m]))",
+            "refId": "A"
+          }
+        ],
+        "title": "Failed SSH Login Rate",
+        "type": "timeseries"
+      },
+      {
+        "datasource": {
+          "type": "loki",
+          "uid": "bb962b48-6784-46b2-9baf-57b3c115a4cf"
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 0,
+          "y": 8
+        },
+        "id": 3,
+        "targets": [
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "bb962b48-6784-46b2-9baf-57b3c115a4cf"
+            },
+            "expr": "sum by (source_ip) (count_over_time({job=\"auth_logs\"} |= \"Failed password\" [1h]))",
+            "refId": "A"
+          }
+        ],
+        "title": "Top Source IPs by Failed Login Count",
+        "type": "table"
+      },
+      {
+        "datasource": {
+          "type": "loki",
+          "uid": "bb962b48-6784-46b2-9baf-57b3c115a4cf"
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 12,
+          "x": 12,
+          "y": 8
+        },
+        "id": 4,
+        "targets": [
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "bb962b48-6784-46b2-9baf-57b3c115a4cf"
+            },
+            "expr": "{job=\"auth_logs\"} |= \"Failed password\"",
+            "refId": "A"
+          }
+        ],
+        "title": "Recent Critical Alerts",
+        "type": "logs"
+      },
+      {
+        "datasource": {
+          "type": "loki",
+          "uid": "bb962b48-6784-46b2-9baf-57b3c115a4cf"
+        },
+        "gridPos": {
+          "h": 8,
+          "w": 24,
+          "x": 0,
+          "y": 16
+        },
+        "id": 5,
+        "targets": [
+          {
+            "datasource": {
+              "type": "loki",
+              "uid": "bb962b48-6784-46b2-9baf-57b3c115a4cf"
+            },
+            "expr": "sum(count_over_time({job=\"auth_logs\"} |= \"Failed password\" [5m])) * 5",
+            "refId": "A"
+          }
+        ],
+        "title": "Severity Score Over Time",
+        "type": "timeseries"
+      }
+    ],
+    "refresh": "15s",
+    "templating": {
+      "list": []
+    },
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "title": "SIEM-Lite Dashboard",
+    "uid": "siem-lite",
+    "version": 1
+  },
+  "overwrite": true,
+  "folderId": 0
+}

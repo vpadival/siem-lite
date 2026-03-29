@@ -44,9 +44,9 @@ SIEM-Lite uses YAML-based detection rules to identify signals of interest. Below
 
 Add screenshots to showcase the system in action:
 
-- **Grafana Dashboard**: ![Grafana Dashboard](<img width="925" height="460" alt="Grafana" src="https://github.com/user-attachments/assets/e7ed3c64-02be-407f-b267-d2e754acff07" />
+- **Grafana Dashboard**: ![Grafana Dashboard](<img width="925" height="460" alt="Grafana" src="images/Grafana.jpg" />
 )
-- **Alert Output**: ![Alert Output](# "Add alert output screenshot here")
+- **Alert Output**: ![Alert Output](# "images/preview.jpg")
 
 ## Cloud Deployment
 

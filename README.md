@@ -1,8 +1,8 @@
 # SIEM-Lite: Cloud-Native Log Monitoring & Alerting System
 ![Status](https://img.shields.io/badge/status-work--in--progress-orange)
-![Maintenance](https://img.shields.io/badge/Maintained%3F-no-red.svg)
 
 > **Warning** > This project is currently under active development and is **not yet ready for production use**. Features may be missing, and the setup process may be unstable.
+> 
 [![Docker](https://img.shields.io/badge/Docker-Ready-blue)](https://www.docker.com/)
 [![Python](https://img.shields.io/badge/Python-3.9%2B-brightgreen)](https://www.python.org/)
 [![Grafana](https://img.shields.io/badge/Grafana-Dashboard-orange)](https://grafana.com/)

@@ -28,7 +28,7 @@ SIEM-Lite leverages the PLG stack for efficient log monitoring and alerting:
 - **Loki**: Aggregates and indexes logs.
 - **Grafana**: Visualises logs and alerts.
 
-![PLG Stack Architecture](./images/plg_stack_architecture-2.jpg)
+![PLG Stack Architecture](images/plg_stack_architecture.jpg)
 
 ## Detection Rules
 

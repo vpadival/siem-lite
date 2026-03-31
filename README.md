@@ -46,7 +46,7 @@ Add screenshots to showcase the system in action:
 
 - **Grafana Dashboard**: ![Grafana Dashboard](<img width="925" height="460" alt="Grafana" src=images/Grafana.jpg />
 )
-- **Alert Output**: ![Alert Output](#images/preview.jpg)
+- **Alert Output**: ![Alert Output](images/preview.jpg)
 
 ## Cloud Deployment
 

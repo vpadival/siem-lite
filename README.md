@@ -1,7 +1,14 @@
 # SIEM-Lite: Cloud-Native Log Monitoring & Alerting System
 
 > [!IMPORTANT]
-> **Project Status: Work in Progress.** > This repository is currently under active development. Features may change, and documentation is being updated frequently.
+> **Project Status:** Version 1.0 is now live! We are currently in the **Testing & Validation** phase, which includes:
+* ✅ Core engine stability checks.
+* 🔄 Integration testing for log parsers.
+* 🧪 Performance benchmarking under high EPS (Events Per Second).
+
+  *Use in production environments with caution during this phase.*
+
+---
 
 [![Docker](https://img.shields.io/badge/Docker-Ready-blue)](https://www.docker.com/)
 [![Python](https://img.shields.io/badge/Python-3.9%2B-brightgreen)](https://www.python.org/)

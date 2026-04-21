@@ -6,7 +6,7 @@
 * 🔄 Integration testing for log parsers.
 * 🧪 Performance benchmarking under high EPS (Events Per Second).
 
-  *Use in production environments with caution during this phase.*
+*Use in production environments with caution during this phase.*
 
 ---
 

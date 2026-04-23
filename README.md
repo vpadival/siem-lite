@@ -14,7 +14,7 @@
 [![Python](https://img.shields.io/badge/Python-3.9%2B-brightgreen)](https://www.python.org/)
 [![Grafana](https://img.shields.io/badge/Grafana-Dashboard-orange)](https://grafana.com/)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
-![Status](https://img.shields.io/badge/Status-In--Progress-yellow)
+![Status](https://img.shields.io/badge/Status-Testing--Phase-orange)
 ## Quick Start
 
 Get started with SIEM-Lite in just three commands:

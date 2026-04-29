@@ -1,60 +1,60 @@
-# Detection rules for lightweight SIEM
-- id: 1
-  name: SSH brute force
-  description: Detects 5 or more failed SSH login attempts from the same IP within 60 seconds.
-  log_source: /var/log/auth.log
-  pattern: '(?i)Failed password for .* from (?P<ip>\d+\.\d+\.\d+\.\d+)' # Regex to match failed SSH logins
-  severity: high
-  score: 5
-  cooldown_seconds: 60
-  alert_message_template: "[ALERT] SSH brute force detected from IP {{ ip }} with {{ count }} failed attempts."
+rules:
+  - id: 1
+    name: SSH brute force
+    description: Detects 5 or more failed SSH login attempts from the same IP within 60 seconds.
+    log_source: /var/log/auth.log
+    pattern: '(?i)Failed password for .* from (?P<ip>\d+\.\d+\.\d+\.\d+)'
+    severity: high
+    score: 5
+    cooldown: 60
+    template: "[ALERT] SSH brute force detected from IP $ip."
 
-- id: 2
-  name: Privilege escalation
-  description: Detects sudo usage by non-admin users.
-  log_source: /var/log/auth.log
-  pattern: '(?i)sudo: (?P<username>[^ ]+)' # Regex to match sudo usage
-  severity: medium
-  score: 3
-  cooldown_seconds: 120
-  alert_message_template: "[ALERT] Privilege escalation attempt by user {{ username }}."
+  - id: 2
+    name: Privilege escalation
+    description: Detects sudo usage by non-admin users.
+    log_source: /var/log/auth.log
+    pattern: '(?i)sudo:\s+(?P<username>[^ ]+)'
+    severity: medium
+    score: 3
+    cooldown: 120
+    template: "[ALERT] Privilege escalation attempt by user $username."
 
-- id: 3
-  name: After-hours login
-  description: Detects successful logins between 23:00 and 05:00.
-  log_source: /var/log/auth.log
-  pattern: '(?i)Accepted password for (?P<username>[^ ]+) from (?P<ip>\d+\.\d+\.\d+\.\d+)' # Regex to match successful logins
-  severity: low
-  score: 1
-  cooldown_seconds: 300
-  alert_message_template: "[ALERT] After-hours login by user {{ username }} from IP {{ ip }}."
+  - id: 3
+    name: After-hours login
+    description: Detects successful logins between 23:00 and 05:00.
+    log_source: /var/log/auth.log
+    pattern: '(?i)Accepted password for (?P<username>[^ ]+) from (?P<ip>\d+\.\d+\.\d+\.\d+)'
+    severity: low
+    score: 1
+    cooldown: 300
+    template: "[ALERT] After-hours login by user $username from IP $ip."
 
-- id: 4
-  name: New user created
-  description: Detects user creation events in auth.log.
-  log_source: /var/log/auth.log
-  pattern: '(?i)(useradd|adduser) (?P<username>[^ ]+)' # Regex to match user creation
-  severity: medium
-  score: 3
-  cooldown_seconds: 300
-  alert_message_template: "[ALERT] New user {{ username }} created."
+  - id: 4
+    name: New user created
+    description: Detects user creation events in auth.log.
+    log_source: /var/log/auth.log
+    pattern: '(?i)(useradd|adduser)\s+(?P<username>[^ ]+)'
+    severity: medium
+    score: 3
+    cooldown: 300
+    template: "[ALERT] New user $username created."
 
-- id: 5
-  name: Direct root login via SSH
-  description: Detects direct root login attempts via SSH.
-  log_source: /var/log/auth.log
-  pattern: '(?i)Accepted password for root from (?P<ip>\d+\.\d+\.\d+\.\d+)' # Regex to match root logins
-  severity: critical
-  score: 10
-  cooldown_seconds: 60
-  alert_message_template: "[ALERT] Direct root login detected from IP {{ ip }}."
+  - id: 5
+    name: Direct root login via SSH
+    description: Detects direct root login attempts via SSH.
+    log_source: /var/log/auth.log
+    pattern: '(?i)Accepted password for root from (?P<ip>\d+\.\d+\.\d+\.\d+)'
+    severity: critical
+    score: 10
+    cooldown: 60
+    template: "[ALERT] Direct root login detected from IP $ip."
 
-- id: 6
-  name: Repeated su failures
-  description: Detects 3 or more failed su attempts within 30 seconds.
-  log_source: /var/log/auth.log
-  pattern: '(?i)su: (?P<username>[^ ]+) failed' # Regex to match su failures
-  severity: high
-  score: 5
-  cooldown_seconds: 30
-  alert_message_template: "[ALERT] Repeated su failures for user {{ username }}."
+  - id: 6
+    name: Repeated su failures
+    description: Detects 3 or more failed su attempts within 30 seconds.
+    log_source: /var/log/auth.log
+    pattern: '(?i)su:\s+(?P<username>[^ ]+)\s+failed'
+    severity: high
+    score: 5
+    cooldown: 30
+    template: "[ALERT] Repeated su failures for user $username."

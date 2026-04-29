@@ -1,0 +1,5 @@
+pyyaml>=6.0
+# inotify is Linux-only; on other platforms the script falls back to polling
+inotify>=0.2.10; sys_platform == "linux"
+# cerberus is optional — enables strict YAML schema validation at startup
+cerberus>=1.3

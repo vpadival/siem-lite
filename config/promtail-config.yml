@@ -9,22 +9,52 @@ clients:
   - url: http://loki:3100/loki/api/v1/push
 
 scrape_configs:
+  # Auth logs — Debian/Ubuntu: auth.log | RHEL/CentOS/Fedora: secure
   - job_name: auth_logs
     static_configs:
       - targets:
           - localhost
         labels:
           job: auth_logs
-          logfile: auth.log
           env: local
           __path__: /var/log/auth.log
+    relabel_configs:
+      - source_labels: [__path__]
+        target_label: logfile
 
+  - job_name: auth_logs_rhel
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: auth_logs
+          env: local
+          __path__: /var/log/secure
+    relabel_configs:
+      - source_labels: [__path__]
+        target_label: logfile
+
+  # System logs — Debian/Ubuntu: syslog | RHEL/CentOS/Fedora: messages
   - job_name: syslog
     static_configs:
       - targets:
           - localhost
         labels:
           job: syslog
-          logfile: syslog
           env: local
           __path__: /var/log/syslog
+    relabel_configs:
+      - source_labels: [__path__]
+        target_label: logfile
+
+  - job_name: syslog_rhel
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: syslog
+          env: local
+          __path__: /var/log/messages
+    relabel_configs:
+      - source_labels: [__path__]
+        target_label: logfile

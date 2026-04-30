@@ -76,6 +76,7 @@ RULE_SCHEMA: dict[str, Any] = {
         "required": True,
         "schema": {
             "type": "dict",
+            "allow_unknown": True,
             "schema": {
                 "name":     {"type": "string",  "required": True},
                 "pattern":  {"type": "string",  "required": True},
@@ -85,7 +86,7 @@ RULE_SCHEMA: dict[str, Any] = {
                     "allowed": ["low", "medium", "high", "critical"],
                 },
                 "score":    {"type": "integer", "required": True, "min": 0, "max": 100},
-                "template": {"type": "string",  "required": True},
+                "template": {"type": "string",  "required": False},
                 "cooldown": {"type": "integer", "required": False, "min": 0},
             },
         },

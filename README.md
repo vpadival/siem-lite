@@ -28,10 +28,15 @@ docker compose up -d
 
 Access the Grafana dashboard at `http://localhost:3000`.
 
-> **Parrot OS / systems without flat log files:** install rsyslog first:
+> **Parrot OS / Arch / minimal VMs (systems without flat log files):**
 > ```bash
+> # Debian/Ubuntu/Parrot
 > sudo apt install -y rsyslog && sudo systemctl enable --now rsyslog
 > sudo chmod o+r /var/log/auth.log /var/log/syslog
+>
+> # RHEL / CentOS / Fedora
+> sudo dnf install -y rsyslog && sudo systemctl enable --now rsyslog
+> sudo chmod o+r /var/log/secure /var/log/messages
 > ```
 
 ## Architecture
@@ -53,7 +58,7 @@ The alert scorer runs independently of Docker and watches log files directly:
 python3 scripts/alert_scorer.py
 ```
 
-It auto-detects log file locations for both Debian/Ubuntu (`/var/log/auth.log`, `/var/log/syslog`) and RHEL/Fedora/CentOS (`/var/log/secure`, `/var/log/messages`).
+It auto-detects log file locations for both Debian/Ubuntu (`/var/log/auth.log`, `/var/log/syslog`) and RHEL/Fedora/CentOS (`/var/log/secure`, `/var/log/messages`). On systems without inotify (macOS, WSL2), it falls back to 1-second polling automatically.
 
 ## Detection Rules
 
@@ -70,13 +75,15 @@ Rules are defined in `rules/detection-rules.yml`. Each rule specifies a regex pa
 
 ## Compatibility
 
-| Distro | Log files | Status |
+| Distro | Log files | Notes |
 |---|---|---|
-| Ubuntu / Debian | `/var/log/auth.log`, `/var/log/syslog` | Supported |
-| Parrot OS | Requires `rsyslog` installed | Supported |
-| RHEL / CentOS / Fedora | `/var/log/secure`, `/var/log/messages` | Supported |
-| Arch / systems with journal only | Requires `rsyslog` | Supported |
-| macOS | Falls back to polling (no inotify) | Supported |
+| Ubuntu / Debian | `/var/log/auth.log`, `/var/log/syslog` | Works out of the box |
+| Parrot OS | Same as Debian | Needs `rsyslog` installed first |
+| RHEL / CentOS / Fedora | `/var/log/secure`, `/var/log/messages` | Works out of the box |
+| Arch Linux | Requires `rsyslog` | Journal-only by default |
+| Minimal cloud VMs | Requires `rsyslog` | Often ship without it |
+| macOS | Any readable log file | No inotify — uses polling |
+| WSL2 | Requires `rsyslog` | Journal not available |
 
 ## Screenshots
 
@@ -112,6 +119,19 @@ Rules are defined in `rules/detection-rules.yml`. Each rule specifies a regex pa
    ```
 
 3. Access the Grafana dashboard at `http://<VM-Public-IP>:3000`.
+
+## Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| `No log files found` | Install rsyslog (see Quick Start above) |
+| `/var/log/auth.log` permission denied | `sudo chmod o+r /var/log/auth.log /var/log/syslog` |
+| Loki container exits with code 1 | Run `docker compose down -v` then `docker compose up -d` to reset volumes |
+| Port 3000 already in use | Change `"3000:3000"` to e.g. `"3001:3000"` in `docker-compose.yml` |
+| Docker not found | Follow the Docker install guide for your distro at docs.docker.com |
+| Python < 3.9 | `sudo apt install python3.9` or use `pyenv` |
+| inotify watch limit hit | `echo fs.inotify.max_user_watches=524288 \| sudo tee -a /etc/sysctl.conf && sudo sysctl -p` |
+| No logs in Grafana after startup | Wait 30s — Loki needs time to index the first entries |
 
 ## SDG Alignment
 

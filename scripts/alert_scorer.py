@@ -3,22 +3,14 @@
 SIEM-Lite Alert Scorer
 Monitors auth.log / syslog (and RHEL equivalents), applies detection rules,
 and emits scored alerts.
-
-Fixes applied:
-  1. Cooldown dict pruning        — prevents unbounded memory growth
-  2. YAML config validation       — catches malformed rules at load time
-  3. string.Template rendering    — replaces fragile str.replace for alert messages
-  4. inotify-based tailing        — replaces time.sleep polling on Linux
-  5. logging library              — replaces print() with structured log output
-  6. Cross-distro log paths       — detects Debian AND RHEL/Fedora log locations
-  7. Rules YAML schema fix        — handles both bare-list and {rules: [...]} formats
-  8. Field name normalisation     — maps cooldown_seconds / alert_message_template
 """
 
 from __future__ import annotations
 
+import argparse
 import logging
 import re
+import threading
 import time
 from io import TextIOWrapper
 from pathlib import Path
@@ -31,7 +23,7 @@ import yaml
 # ---------------------------------------------------------------------------
 # inotify shim — fully contains the untyped library behind a typed facade.
 # ---------------------------------------------------------------------------
-class _InotifyWatcher:
+class InotifyWatcher:
     """Thin typed wrapper around inotify.adapters.Inotify."""
 
     def __init__(self, watch_dir: str) -> None:
@@ -104,7 +96,7 @@ def _validate_with_cerberus(data: dict[str, Any]) -> None:
             raise ValueError("Rules file must contain a top-level 'rules' key")
         return
 
-    ValidatorCls: Any = Validator  # cast: no stubs, Pylance can't see constructor args
+    ValidatorCls: Any = Validator
     v: Any = ValidatorCls(RULE_SCHEMA, require_all=False)
     valid: bool = bool(v.validate(data))
     if not valid:
@@ -112,9 +104,9 @@ def _validate_with_cerberus(data: dict[str, Any]) -> None:
         raise ValueError(f"Rule validation errors: {errors}")
 
 
-def _normalise_rule(rule: dict[str, Any]) -> dict[str, Any]:
+def normalise_rule(rule: dict[str, Any]) -> dict[str, Any]:
     """
-    Fix 7 & 8: Map old field names to the canonical names the script uses.
+    Map old field names to the canonical names the script uses.
 
     detection-rules.yml previously used:
       cooldown_seconds        -> cooldown
@@ -124,7 +116,6 @@ def _normalise_rule(rule: dict[str, Any]) -> dict[str, Any]:
         rule["cooldown"] = rule.pop("cooldown_seconds")
     if "alert_message_template" in rule and "template" not in rule:
         rule["template"] = rule.pop("alert_message_template")
-        # Convert Jinja-style {{ var }} to $var for string.Template
         rule["template"] = re.sub(r"\{\{\s*(\w+)\s*\}\}", r"${\1}", rule["template"])
     return rule
 
@@ -139,18 +130,15 @@ def load_rules(path: str) -> list[Rule]:
     raw = Path(path).read_text(encoding="utf-8")
     data: Any = yaml.safe_load(raw)
 
-    # Fix 7: normalise bare list into the expected dict shape
     if isinstance(data, list):
         wrapped: dict[str, Any] = {"rules": cast(list[Any], data)}
     else:
         wrapped = cast(dict[str, Any], data)
-    normalised: dict[str, Any] = wrapped
 
-    _validate_with_cerberus(normalised)
+    _validate_with_cerberus(wrapped)
 
-    rules: list[Rule] = [_normalise_rule(r) for r in normalised["rules"]]
+    rules: list[Rule] = [normalise_rule(r) for r in wrapped["rules"]]
 
-    # Pre-compile regexes and apply defaults
     for rule in rules:
         rule["_regex"] = re.compile(str(rule["pattern"]))
         rule.setdefault("cooldown", 60)
@@ -161,7 +149,7 @@ def load_rules(path: str) -> list[Rule]:
 
 
 # ---------------------------------------------------------------------------
-# Fix 3: Template-based alert rendering (string.Template / $var syntax)
+# Template-based alert rendering (string.Template / $var syntax)
 # ---------------------------------------------------------------------------
 def render_alert(template_str: str, context: dict[str, str]) -> str:
     """Render an alert message using string.Template ($variable syntax)."""
@@ -169,16 +157,21 @@ def render_alert(template_str: str, context: dict[str, str]) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Fix 1: Cooldown dict with pruning
+# Cooldown dict with pruning — thread-safe via Lock
 # ---------------------------------------------------------------------------
 class CooldownTracker:
-    """Tracks per-rule cooldowns and prunes stale entries automatically."""
+    """Tracks per-rule cooldowns and prunes stale entries automatically.
+
+    Thread-safe: a single instance is shared across all watcher threads.
+    """
 
     def __init__(self, max_age: int = 3600) -> None:
         self._last_fired: dict[str, float] = {}
         self._max_age = max_age
+        self._lock = threading.Lock()
 
     def _prune(self) -> None:
+        """Caller must hold self._lock."""
         now = time.monotonic()
         expired = [k for k, t in self._last_fired.items() if now - t > self._max_age]
         for k in expired:
@@ -187,24 +180,37 @@ class CooldownTracker:
             logger.debug("Pruned %d expired cooldown entries", len(expired))
 
     def is_cooled_down(self, key: str, cooldown_secs: int) -> bool:
-        self._prune()
-        last = self._last_fired.get(key)
-        return last is None or (time.monotonic() - last) >= cooldown_secs
+        with self._lock:
+            self._prune()
+            last = self._last_fired.get(key)
+            return last is None or (time.monotonic() - last) >= cooldown_secs
 
     def mark_fired(self, key: str) -> None:
-        self._last_fired[key] = time.monotonic()
+        with self._lock:
+            self._last_fired[key] = time.monotonic()
+
+    def set_fired_at(self, key: str, monotonic_time: float) -> None:
+        """Test helper: backdates a fired timestamp."""
+        with self._lock:
+            self._last_fired[key] = monotonic_time
+
+    def fired_keys(self) -> frozenset[str]:
+        """Test helper: returns the set of keys currently being tracked."""
+        with self._lock:
+            return frozenset(self._last_fired)
+    
 
 
 # ---------------------------------------------------------------------------
-# Fix 4: inotify-based real-time log tailing with sleep fallback
+# inotify-based real-time log tailing with sleep fallback
 # ---------------------------------------------------------------------------
 def tail_with_inotify(log_path: str, rules: list[Rule], cooldowns: CooldownTracker) -> None:
     """Watch a log file with inotify (Linux) or poll (other platforms)."""
     path = Path(log_path)
     fh: TextIOWrapper = path.open("r", errors="replace")
-    fh.seek(0, 2)  # seek to end — process only new lines
+    fh.seek(0, 2)
 
-    watcher = _InotifyWatcher(str(path.parent))
+    watcher = InotifyWatcher(str(path.parent))
     started: bool = watcher.start()
 
     if not started:
@@ -227,7 +233,7 @@ def tail_with_inotify(log_path: str, rules: list[Rule], cooldowns: CooldownTrack
 
             if filename != path.name:
                 continue
-            if "IN_MODIFY" not in type_names and "IN_MOVED_TO" not in type_names:
+            if not any(e in type_names for e in ("IN_MODIFY", "IN_MOVED_TO", "IN_CLOSE_WRITE")):
                 continue
 
             if "IN_MOVED_TO" in type_names:
@@ -287,21 +293,20 @@ def process_line(line: str, rules: list[Rule], cooldowns: CooldownTracker) -> No
 
 
 # ---------------------------------------------------------------------------
-# Fix 6: Cross-distro log path detection
+# Cross-distro log path detection
 # ---------------------------------------------------------------------------
-def _discover_log_paths() -> list[str]:
+def discover_log_paths() -> list[str]:
     """
     Return existing log paths for the current distro.
 
     Debian/Ubuntu:  /var/log/auth.log, /var/log/syslog
     RHEL/CentOS:    /var/log/secure,   /var/log/messages
-    Fedora/Arch:    may only have systemd journal — warn the user.
     """
     candidates = [
-        "/var/log/auth.log",   # Debian / Ubuntu
-        "/var/log/secure",     # RHEL / CentOS / Fedora
-        "/var/log/syslog",     # Debian / Ubuntu
-        "/var/log/messages",   # RHEL / CentOS / Fedora
+        "/var/log/auth.log",
+        "/var/log/secure",
+        "/var/log/syslog",
+        "/var/log/messages",
     ]
     found = [p for p in candidates if Path(p).exists()]
     if not found:
@@ -313,26 +318,57 @@ def _discover_log_paths() -> list[str]:
 
 
 # ---------------------------------------------------------------------------
-# Entry point
+# Entry point with argparse CLI
 # ---------------------------------------------------------------------------
 DEFAULT_RULES_PATH = "rules/detection-rules.yml"
 
 
-def main() -> None:
-    import threading
+def build_arg_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        description="SIEM-Lite alert scorer — tails log files and emits scored alerts.",
+    )
+    p.add_argument(
+        "--rules",
+        default=DEFAULT_RULES_PATH,
+        metavar="PATH",
+        help=f"Path to detection-rules YAML (default: {DEFAULT_RULES_PATH})",
+    )
+    p.add_argument(
+        "--log",
+        dest="logs",
+        action="append",
+        metavar="PATH",
+        help="Log file to watch (repeatable; auto-detected if omitted)",
+    )
+    p.add_argument(
+        "--debug",
+        action="store_true",
+        help="Enable DEBUG-level logging",
+    )
+    return p
 
-    rules = load_rules(DEFAULT_RULES_PATH)
+
+def main(argv: list[str] | None = None) -> None:
+    parser = build_arg_parser()
+    args: argparse.Namespace = parser.parse_args(argv)
+
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+
+    rules = load_rules(str(args.rules))
     cooldowns = CooldownTracker()
 
-    log_paths = _discover_log_paths()
+    raw_logs: list[str] | None = args.logs
+    log_paths: list[str] = raw_logs if raw_logs is not None else discover_log_paths()
 
     threads: list[threading.Thread] = []
     for log_path in log_paths:
+        lp: str = log_path
         t = threading.Thread(
             target=tail_with_inotify,
-            args=(log_path, rules, cooldowns),
+            args=(lp, rules, cooldowns),
             daemon=True,
-            name=f"watcher-{Path(log_path).name}",
+            name=f"watcher-{Path(lp).name}",
         )
         t.start()
         threads.append(t)

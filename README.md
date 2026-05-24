@@ -1,12 +1,8 @@
 # SIEM-Lite: Cloud-Native Log Monitoring & Alerting System
 
-> [!IMPORTANT]
-> **Project Status:** Version 1.0 is now live! We are currently in the **Testing & Validation** phase, which includes:
-* ✅ Core engine stability checks.
-* ✅ Integration testing for log parsers.
-* 🧪 Performance benchmarking under high EPS (Events Per Second).
-
-*Use in production environments with caution during this phase.*
+> [!WARNING]
+> **Project Status: Active Maintenance**  
+> The repository is currently undergoing significant maintenance, architectural upgrades, and improvements. During this window, certain features, configurations, or scripts might be subject to breaking changes. Please use with caution in any testing or staging environments.
 
 ---
 
@@ -14,12 +10,12 @@
 [![Python](https://img.shields.io/badge/Python-3.9%2B-brightgreen)](https://www.python.org/)
 [![Grafana](https://img.shields.io/badge/Grafana-Dashboard-orange)](https://grafana.com/)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
-![Status](https://img.shields.io/badge/Status-Testing--Phase-orange)
+![Status](https://img.shields.io/badge/Status-Under--Maintenance-red)
 
 ## Quick Start
 
 ```bash
-git clone https://github.com/vpadival/siem-lite.git
+git clone [https://github.com/vpadival/siem-lite.git](https://github.com/vpadival/siem-lite.git)
 cd siem-lite
 cp .env.example .env          # set your Grafana password
 pip3 install -r requirements.txt --break-system-packages

@@ -1,60 +1,66 @@
 rules:
   - id: 1
     name: SSH brute force
-    description: Detects 5 or more failed SSH login attempts from the same IP within 60 seconds.
+    description: >
+      Detects failed SSH login attempts from any IP.
+      NOTE: The alert_scorer uses a cooldown window; for true "5+ in 60s"
+      counting, use the ML scorer (scripts/ml_scorer.py) which aggregates
+      events per-IP over sliding windows.
     log_source: /var/log/auth.log
-    pattern: '(?i)Failed password for .* from (?P<ip>\d+\.\d+\.\d+\.\d+)'
+    pattern: '(?i)Failed password for (?:invalid user )?(?P<username>\S+) from (?P<ip>\d+\.\d+\.\d+\.\d+)'
     severity: high
     score: 5
     cooldown: 60
-    template: "[ALERT] SSH brute force detected from IP $ip."
+    template: "[ALERT] SSH brute force: failed login for $username from IP $ip."
 
   - id: 2
     name: Privilege escalation
-    description: Detects sudo usage by non-admin users.
+    description: Detects sudo usage — any user running commands via sudo.
     log_source: /var/log/auth.log
-    pattern: '(?i)sudo:\s+(?P<username>[^ ]+)'
+    pattern: '(?i)sudo:\s+(?P<username>[^ ]+)\s+.*COMMAND=(?P<command>.+)'
     severity: medium
     score: 3
     cooldown: 120
-    template: "[ALERT] Privilege escalation attempt by user $username."
+    template: "[ALERT] Privilege escalation: $username ran sudo command: $command"
 
   - id: 3
     name: After-hours login
-    description: Detects successful logins between 23:00 and 05:00.
+    description: >
+      Detects successful SSH logins between 23:00 and 04:59.
+      The pattern matches the syslog timestamp hour (two-digit HH field).
     log_source: /var/log/auth.log
-    pattern: '(?i)Accepted password for (?P<username>[^ ]+) from (?P<ip>\d+\.\d+\.\d+\.\d+)'
+    pattern: '^\w{3}\s+\d{1,2}\s+(?P<hour>2[3-9]|0[0-4]):\d{2}:\d{2}\s+\S+\s+sshd\[\d+\]:\s+Accepted password for (?P<username>\S+) from (?P<ip>\d+\.\d+\.\d+\.\d+)'
     severity: low
     score: 1
     cooldown: 300
-    template: "[ALERT] After-hours login by user $username from IP $ip."
+    template: "[ALERT] After-hours login at $hour:xx by $username from $ip."
 
   - id: 4
     name: New user created
-    description: Detects user creation events in auth.log.
+    description: Detects user creation events (useradd/adduser) in auth.log.
     log_source: /var/log/auth.log
-    pattern: '(?i)(useradd|adduser)\s+(?P<username>[^ ]+)'
+    pattern: '(?i)(useradd|adduser)\[?\d*\]?:.*(?:new user:\s*name=)?(?P<username>\S+)'
     severity: medium
     score: 3
     cooldown: 300
-    template: "[ALERT] New user $username created."
+    template: "[ALERT] New user created: $username."
 
   - id: 5
     name: Direct root login via SSH
-    description: Detects direct root login attempts via SSH.
+    description: Detects direct root login via SSH (accepted password for root).
     log_source: /var/log/auth.log
     pattern: '(?i)Accepted password for root from (?P<ip>\d+\.\d+\.\d+\.\d+)'
     severity: critical
     score: 10
     cooldown: 60
-    template: "[ALERT] Direct root login detected from IP $ip."
+    template: "[ALERT] Direct root SSH login from IP $ip."
 
   - id: 6
     name: Repeated su failures
-    description: Detects 3 or more failed su attempts within 30 seconds.
+    description: Detects failed su attempts.
     log_source: /var/log/auth.log
-    pattern: '(?i)su:\s+(?P<username>[^ ]+)\s+failed'
+    pattern: '(?i)su[\[:\s].*(?:FAILED|failed|authentication failure).*(?:for\s+\S+\s+by\s+)?(?P<username>\S+)'
     severity: high
     score: 5
     cooldown: 30
-    template: "[ALERT] Repeated su failures for user $username."
+    template: "[ALERT] su failure involving user $username."

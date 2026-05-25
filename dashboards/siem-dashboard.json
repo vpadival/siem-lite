@@ -3,23 +3,12 @@
     "id": null,
     "panels": [
       {
-        "datasource": {
-          "type": "loki",
-          "uid": "bb962b48-6784-46b2-9baf-57b3c115a4cf"
-        },
-        "gridPos": {
-          "h": 8,
-          "w": 12,
-          "x": 0,
-          "y": 0
-        },
+        "datasource": { "type": "loki", "uid": "siem-loki" },
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
         "id": 1,
         "targets": [
           {
-            "datasource": {
-              "type": "loki",
-              "uid": "bb962b48-6784-46b2-9baf-57b3c115a4cf"
-            },
+            "datasource": { "type": "loki", "uid": "siem-loki" },
             "expr": "sum by (logfile) (count_over_time({job=~\"auth_logs|syslog\"}[5m]))",
             "refId": "A"
           }
@@ -28,23 +17,12 @@
         "type": "timeseries"
       },
       {
-        "datasource": {
-          "type": "loki",
-          "uid": "bb962b48-6784-46b2-9baf-57b3c115a4cf"
-        },
-        "gridPos": {
-          "h": 8,
-          "w": 12,
-          "x": 12,
-          "y": 0
-        },
+        "datasource": { "type": "loki", "uid": "siem-loki" },
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
         "id": 2,
         "targets": [
           {
-            "datasource": {
-              "type": "loki",
-              "uid": "bb962b48-6784-46b2-9baf-57b3c115a4cf"
-            },
+            "datasource": { "type": "loki", "uid": "siem-loki" },
             "expr": "sum(count_over_time({job=\"auth_logs\"} |= \"Failed password\" [5m]))",
             "refId": "A"
           }
@@ -53,23 +31,12 @@
         "type": "timeseries"
       },
       {
-        "datasource": {
-          "type": "loki",
-          "uid": "bb962b48-6784-46b2-9baf-57b3c115a4cf"
-        },
-        "gridPos": {
-          "h": 8,
-          "w": 12,
-          "x": 0,
-          "y": 8
-        },
+        "datasource": { "type": "loki", "uid": "siem-loki" },
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
         "id": 3,
         "targets": [
           {
-            "datasource": {
-              "type": "loki",
-              "uid": "bb962b48-6784-46b2-9baf-57b3c115a4cf"
-            },
+            "datasource": { "type": "loki", "uid": "siem-loki" },
             "expr": "sum by (source_ip) (count_over_time({job=\"auth_logs\"} |= \"Failed password\" [1h]))",
             "refId": "A"
           }
@@ -78,67 +45,85 @@
         "type": "table"
       },
       {
-        "datasource": {
-          "type": "loki",
-          "uid": "bb962b48-6784-46b2-9baf-57b3c115a4cf"
-        },
-        "gridPos": {
-          "h": 8,
-          "w": 12,
-          "x": 12,
-          "y": 8
-        },
+        "datasource": { "type": "loki", "uid": "siem-loki" },
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
         "id": 4,
         "targets": [
           {
-            "datasource": {
-              "type": "loki",
-              "uid": "bb962b48-6784-46b2-9baf-57b3c115a4cf"
-            },
+            "datasource": { "type": "loki", "uid": "siem-loki" },
             "expr": "{job=\"auth_logs\"} |= \"Failed password\"",
             "refId": "A"
           }
         ],
-        "title": "Recent Critical Alerts",
+        "title": "Recent Critical Alerts (Rule-Based)",
         "type": "logs"
       },
       {
-        "datasource": {
-          "type": "loki",
-          "uid": "bb962b48-6784-46b2-9baf-57b3c115a4cf"
-        },
-        "gridPos": {
-          "h": 8,
-          "w": 24,
-          "x": 0,
-          "y": 16
-        },
+        "datasource": { "type": "loki", "uid": "siem-loki" },
+        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
         "id": 5,
+        "title": "ML Alerts — Composite Risk Score Over Time",
+        "description": "Shows ML-scored alerts pushed from scripts/ml_scorer.py via the Loki push API.",
+        "type": "timeseries",
         "targets": [
           {
-            "datasource": {
-              "type": "loki",
-              "uid": "bb962b48-6784-46b2-9baf-57b3c115a4cf"
-            },
-            "expr": "sum(count_over_time({job=\"auth_logs\"} |= \"Failed password\" [5m])) * 5",
+            "datasource": { "type": "loki", "uid": "siem-loki" },
+            "expr": "{job=\"siem_ml_alerts\"} | json | unwrap composite_score [5m]",
+            "legendFormat": "{{rf_label}}",
             "refId": "A"
           }
-        ],
-        "title": "Severity Score Over Time",
-        "type": "timeseries"
+        ]
+      },
+      {
+        "datasource": { "type": "loki", "uid": "siem-loki" },
+        "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+        "id": 6,
+        "title": "ML Alerts by Severity",
+        "type": "piechart",
+        "targets": [
+          {
+            "datasource": { "type": "loki", "uid": "siem-loki" },
+            "expr": "sum by (severity) (count_over_time({job=\"siem_ml_alerts\"}[1h]))",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "datasource": { "type": "loki", "uid": "siem-loki" },
+        "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+        "id": 7,
+        "title": "ML Alerts by Attack Category (RF Label)",
+        "type": "barchart",
+        "targets": [
+          {
+            "datasource": { "type": "loki", "uid": "siem-loki" },
+            "expr": "sum by (rf_label) (count_over_time({job=\"siem_ml_alerts\"} | rf_label != \"normal\" [1h]))",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "datasource": { "type": "loki", "uid": "siem-loki" },
+        "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+        "id": 8,
+        "title": "ML Alert Log Stream",
+        "description": "Raw ML-scored alerts with composite score, RF label, and anomaly flag.",
+        "type": "logs",
+        "targets": [
+          {
+            "datasource": { "type": "loki", "uid": "siem-loki" },
+            "expr": "{job=\"siem_ml_alerts\"}",
+            "refId": "A"
+          }
+        ]
       }
     ],
     "refresh": "15s",
-    "templating": {
-      "list": []
-    },
-    "time": {
-      "from": "now-1h",
-      "to": "now"
-    },
-    "title": "SIEM-Lite Dashboard",
+    "templating": { "list": [] },
+    "time": { "from": "now-1h", "to": "now" },
+    "title": "SIEM-Lite Dashboard (ML-Enhanced)",
     "uid": "siem-lite",
-    "version": 1
+    "version": 2
   },
   "overwrite": true,
   "folderId": 0

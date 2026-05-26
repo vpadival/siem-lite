@@ -17,8 +17,15 @@
 ```bash
 git clone [https://github.com/vpadival/siem-lite.git](https://github.com/vpadival/siem-lite.git)
 cd siem-lite
+python -m venv venv
+
+# Activate the virtual environment before installing dependencies:
+# Windows PowerShell: .\venv\Scripts\Activate.ps1
+# Windows CMD: venv\Scripts\activate.bat
+# macOS / Linux: source venv/bin/activate
+
 cp .env.example .env          # set your Grafana password
-pip3 install -r requirements.txt --break-system-packages
+pip install -r requirements.txt
 docker compose up -d
 ```
 

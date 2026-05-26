@@ -6,6 +6,9 @@ inotify>=0.2.10; sys_platform == "linux"
 # cerberus is optional — enables strict YAML schema validation at startup
 cerberus>=1.3
 
+# Testing
+pytest>=7.0
+
 # ---------- ML pipeline dependencies ----------
 scikit-learn>=1.3
 pandas>=2.0

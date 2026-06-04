@@ -74,6 +74,7 @@ def train_random_forest(
     X_test: np.ndarray,
     y_test: np.ndarray,
     label_encoder: LabelEncoder,
+    featurizer: LogFeaturizer,          # FIX R4: passed explicitly, no global
 ) -> RandomForestClassifier:
     """Train a Random Forest, evaluate, and save artefacts."""
 
@@ -165,7 +166,7 @@ def train_random_forest(
     logger.info("Saved ROC curves -> %s", RESULTS_DIR / "rf_roc_curves.png")
 
     # -- Feature importance (top 25) --
-    feat_names = featurizer.get_feature_names()  # type: ignore[name-defined]
+    feat_names = featurizer.get_feature_names()   # FIX R4: use parameter, not global
     importances = clf.feature_importances_
     top_n = 25
     top_idx = np.argsort(importances)[-top_n:][::-1]
@@ -193,11 +194,15 @@ def train_isolation_forest(
     y_train: np.ndarray,
     X_test: np.ndarray,
     y_test: np.ndarray,
+    label_encoder: LabelEncoder,        # FIX R5: passed explicitly for safe lookup
 ) -> IsolationForest:
     """Train an Isolation Forest on normal-only data, evaluate on full test set."""
 
-    # Train ONLY on normal samples (unsupervised paradigm)
-    normal_mask = y_train == 0  # 0 = "normal" after LabelEncoder
+    # FIX R5: resolve the "normal" label index safely via the encoder,
+    # never assume it is always 0 (LabelEncoder sorts alphabetically and
+    # the index could change if new classes are added).
+    normal_idx = int(label_encoder.transform(["normal"])[0])
+    normal_mask = y_train == normal_idx
     X_train_normal = X_train[normal_mask]
     logger.info(
         "Training Isolation Forest on %d normal samples (out of %d total) ...",
@@ -217,8 +222,8 @@ def train_isolation_forest(
     iso_pred = iso.predict(X_test)
     iso_scores = iso.decision_function(X_test)
 
-    # Map labels: normal (0) -> 1 (inlier), anything else -> -1 (outlier)
-    y_binary_true = np.where(y_test == 0, 1, -1)
+    # Map labels: normal -> 1 (inlier), anything else -> -1 (outlier)
+    y_binary_true = np.where(y_test == normal_idx, 1, -1)
 
     tp = int(np.sum((iso_pred == -1) & (y_binary_true == -1)))
     fp = int(np.sum((iso_pred == -1) & (y_binary_true == 1)))
@@ -272,12 +277,7 @@ def train_isolation_forest(
 # ---------------------------------------------------------------------------
 # Main pipeline
 # ---------------------------------------------------------------------------
-featurizer: LogFeaturizer  # module-level so feature importance can access it
-
-
 def main() -> None:
-    global featurizer
-
     parser = argparse.ArgumentParser(description="Train & evaluate SIEM-Lite ML models")
     parser.add_argument("--dataset", default="data/auth_logs_labeled.csv")
     parser.add_argument("--test-size", type=float, default=0.25)
@@ -312,8 +312,10 @@ def main() -> None:
     logger.info("Train: %d, Test: %d", X_train.shape[0], X_test.shape[0])
 
     # -- Train models --
-    rf_clf = train_random_forest(X_train, y_train, X_test, y_test, le)
-    iso_clf = train_isolation_forest(X_train, y_train, X_test, y_test)
+    # FIX R4: featurizer passed as parameter, no module-level global needed
+    rf_clf = train_random_forest(X_train, y_train, X_test, y_test, le, featurizer)
+    # FIX R5: label_encoder passed so normal index is resolved safely
+    iso_clf = train_isolation_forest(X_train, y_train, X_test, y_test, le)
 
     # -- Serialise --
     joblib.dump(rf_clf, MODELS_DIR / "random_forest.joblib")

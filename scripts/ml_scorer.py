@@ -24,7 +24,6 @@ from __future__ import annotations
 import argparse
 import json
 import logging
-import re
 import sys
 import time
 import threading
@@ -37,11 +36,13 @@ import joblib
 import numpy as np
 import pandas as pd
 
-# Add project root to path so we can import from ml/
+# Add project root to path so we can import from ml/ and scripts/
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT / "ml"))
+sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 
 from feature_engineering import LogFeaturizer  # noqa: E402
+from utils import discover_log_paths           # shared — no duplication
 
 logging.basicConfig(
     level=logging.INFO,
@@ -170,7 +171,8 @@ def _severity_from_score(score: float) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Log tailing (reuses inotify/polling from alert_scorer)
+# Log tailing — uses inotify (Linux) with polling fallback, matching
+# alert_scorer.py behaviour exactly (previously this was polling-only).
 # ---------------------------------------------------------------------------
 def tail_and_score(
     log_path: str,
@@ -178,54 +180,87 @@ def tail_and_score(
     threshold: float,
     loki_url: str | None,
 ) -> None:
-    """Tail a log file and score each new line with ML models."""
+    """Tail a log file and score each new line with ML models.
+
+    Uses inotify on Linux for low-latency event-driven watching and falls
+    back to 1-second polling on other platforms — consistent with
+    alert_scorer.py so both scorers behave identically.
+    """
     path = Path(log_path)
     fh: TextIOWrapper = path.open("r", errors="replace")
     fh.seek(0, 2)  # skip to end
 
+    # Try inotify first (Linux only)
+    try:
+        import inotify.adapters as _ia  # type: ignore[import-untyped]
+        watcher = _ia.Inotify()
+        watcher.add_watch(str(path.parent))
+        use_inotify = True
+    except ImportError:
+        use_inotify = False
+        logger.warning(
+            "inotify not available — ML scorer falling back to 1-second polling for %s",
+            log_path,
+        )
+
     logger.info("ML scorer watching %s (threshold=%.2f)", log_path, threshold)
 
-    while True:
-        line = fh.readline()
-        if not line:
-            time.sleep(1)
-            continue
-
-        line = line.rstrip()
-        if not line:
-            continue
-
-        result = scorer.predict(line)
-
-        if result["composite_score"] >= threshold:
-            logger.warning(
-                "ML-ALERT  composite=%-5.1f  rf=%-22s (%.2f)  iso_anomaly=%-5s  line=%s",
-                result["composite_score"],
-                result["rf_label"],
-                result["rf_confidence"],
-                result["iso_is_anomaly"],
-                line[:120],
-            )
-            if loki_url:
-                push_to_loki(loki_url, line, result)
+    try:
+        if use_inotify:
+            for raw_event in watcher.event_gen(yield_nones=False):  # type: ignore[possibly-undefined]
+                type_names: list[str] = list(raw_event[1])
+                filename: str = str(raw_event[3])
+                if filename != path.name:
+                    continue
+                if not any(e in type_names for e in ("IN_MODIFY", "IN_MOVED_TO", "IN_CLOSE_WRITE")):
+                    continue
+                if "IN_MOVED_TO" in type_names:
+                    fh.close()
+                    fh = path.open("r", errors="replace")
+                    logger.info("Log rotated, re-opened %s", log_path)
+                for line in fh:
+                    _score_and_emit(line.rstrip(), scorer, threshold, loki_url)
         else:
-            logger.debug(
-                "NORMAL    composite=%-5.1f  rf=%-22s  line=%s",
-                result["composite_score"],
-                result["rf_label"],
-                line[:80],
-            )
+            while True:
+                line = fh.readline()
+                if line:
+                    _score_and_emit(line.rstrip(), scorer, threshold, loki_url)
+                else:
+                    time.sleep(1)
+    finally:
+        fh.close()
 
 
-# ---------------------------------------------------------------------------
-# Log path discovery (same as alert_scorer.py)
-# ---------------------------------------------------------------------------
-def discover_log_paths() -> list[str]:
-    candidates = [
-        "/var/log/auth.log", "/var/log/secure",
-        "/var/log/syslog", "/var/log/messages",
-    ]
-    return [p for p in candidates if Path(p).exists()]
+def _score_and_emit(
+    line: str,
+    scorer: MLScorer,
+    threshold: float,
+    loki_url: str | None,
+) -> None:
+    """Score one log line and emit a warning if it exceeds the threshold."""
+    if not line:
+        return
+
+    result = scorer.predict(line)
+
+    if result["composite_score"] >= threshold:
+        logger.warning(
+            "ML-ALERT  composite=%-5.1f  rf=%-22s (%.2f)  iso_anomaly=%-5s  line=%s",
+            result["composite_score"],
+            result["rf_label"],
+            result["rf_confidence"],
+            result["iso_is_anomaly"],
+            line[:120],
+        )
+        if loki_url:
+            push_to_loki(loki_url, line, result)
+    else:
+        logger.debug(
+            "NORMAL    composite=%-5.1f  rf=%-22s  line=%s",
+            result["composite_score"],
+            result["rf_label"],
+            line[:80],
+        )
 
 
 # ---------------------------------------------------------------------------

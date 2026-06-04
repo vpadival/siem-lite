@@ -19,6 +19,8 @@ from typing import Any, cast
 
 import yaml
 
+from utils import discover_log_paths  # shared utility — no duplication
+
 
 # ---------------------------------------------------------------------------
 # inotify shim — fully contains the untyped library behind a typed facade.
@@ -198,7 +200,6 @@ class CooldownTracker:
         """Test helper: returns the set of keys currently being tracked."""
         with self._lock:
             return frozenset(self._last_fired)
-    
 
 
 # ---------------------------------------------------------------------------
@@ -290,31 +291,6 @@ def process_line(line: str, rules: list[Rule], cooldowns: CooldownTracker) -> No
             key,
             message,
         )
-
-
-# ---------------------------------------------------------------------------
-# Cross-distro log path detection
-# ---------------------------------------------------------------------------
-def discover_log_paths() -> list[str]:
-    """
-    Return existing log paths for the current distro.
-
-    Debian/Ubuntu:  /var/log/auth.log, /var/log/syslog
-    RHEL/CentOS:    /var/log/secure,   /var/log/messages
-    """
-    candidates = [
-        "/var/log/auth.log",
-        "/var/log/secure",
-        "/var/log/syslog",
-        "/var/log/messages",
-    ]
-    found = [p for p in candidates if Path(p).exists()]
-    if not found:
-        logger.warning(
-            "No standard log files found. Your distro may use systemd-journal only. "
-            "Try: journalctl -f | python3 alert_scorer.py --stdin  (not yet implemented)"
-        )
-    return found
 
 
 # ---------------------------------------------------------------------------

@@ -1,0 +1,21 @@
+{
+  "accuracy": 1.0,
+  "f1_macro": 1.0,
+  "f1_weighted": 1.0,
+  "precision_macro": 1.0,
+  "recall_macro": 1.0,
+  "cv_f1_macro_mean": 1.0,
+  "cv_f1_macro_std": 0.0,
+  "n_train": 37500,
+  "n_test": 12500,
+  "n_classes": 7,
+  "class_names": [
+    "after_hours_login",
+    "new_user_created",
+    "normal",
+    "privilege_escalation",
+    "root_login",
+    "ssh_brute_force",
+    "su_failure"
+  ]
+}

@@ -1,10 +1,16 @@
 # SIEM-Lite: Cloud-Native Log Monitoring & Alerting System
 
+> [!WARNING]
+> **Project Status: Active Maintenance**  
+> The repository is currently undergoing significant maintenance, architectural upgrades, and improvements. During this window, certain features, configurations, or scripts might be subject to breaking changes. Please use with caution in any testing or staging environments.
+
+---
+
 [![Docker](https://img.shields.io/badge/Docker-Ready-blue)](https://www.docker.com/)
 [![Python](https://img.shields.io/badge/Python-3.9%2B-brightgreen)](https://www.python.org/)
 [![Grafana](https://img.shields.io/badge/Grafana-Dashboard-orange)](https://grafana.com/)
 [![License](https://img.shields.io/badge/License-MIT-yellow)](./LICENSE)
-![Status](https://img.shields.io/badge/Status-Active-green)
+![Status](https://img.shields.io/badge/Status-Under--Maintenance-red)
 
 ---
 

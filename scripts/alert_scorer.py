@@ -3,6 +3,10 @@
 SIEM-Lite Alert Scorer
 Monitors auth.log / syslog (and RHEL equivalents), applies detection rules,
 and emits scored alerts.
+
+Now includes BruteForceDetector: a sliding-window per-IP SSH failure counter
+that fires a single consolidated alert when a threshold is crossed, replacing
+the old per-line cooldown approach for brute-force detection.
 """
 
 from __future__ import annotations
@@ -12,6 +16,7 @@ import logging
 import re
 import threading
 import time
+from collections import defaultdict
 from io import TextIOWrapper
 from pathlib import Path
 from string import Template
@@ -19,11 +24,11 @@ from typing import Any, cast
 
 import yaml
 
-from utils import discover_log_paths  # shared utility — no duplication
+from utils import discover_log_paths
 
 
 # ---------------------------------------------------------------------------
-# inotify shim — fully contains the untyped library behind a typed facade.
+# inotify shim
 # ---------------------------------------------------------------------------
 class InotifyWatcher:
     """Thin typed wrapper around inotify.adapters.Inotify."""
@@ -33,7 +38,6 @@ class InotifyWatcher:
         self._watch_dir = watch_dir
 
     def start(self) -> bool:
-        """Return True if inotify was successfully initialised."""
         try:
             import inotify.adapters as _ia  # type: ignore[import-untyped]
             self._instance = _ia.Inotify()
@@ -43,7 +47,6 @@ class InotifyWatcher:
             return False
 
     def iter_events(self) -> Any:
-        """Return the raw inotify generator for use in a for-loop."""
         if self._instance is None:
             return iter([])
         return self._instance.event_gen(yield_nones=False)
@@ -62,7 +65,7 @@ logger = logging.getLogger("siem-lite")
 Rule = dict[str, Any]
 
 # ---------------------------------------------------------------------------
-# YAML validation schema (cerberus — optional dep)
+# YAML validation schema (cerberus — optional)
 # ---------------------------------------------------------------------------
 RULE_SCHEMA: dict[str, Any] = {
     "rules": {
@@ -89,7 +92,6 @@ RULE_SCHEMA: dict[str, Any] = {
 
 
 def _validate_with_cerberus(data: dict[str, Any]) -> None:
-    """Run cerberus schema validation if cerberus is installed."""
     try:
         from cerberus import Validator  # type: ignore[import-untyped]
     except ImportError:
@@ -100,20 +102,11 @@ def _validate_with_cerberus(data: dict[str, Any]) -> None:
 
     ValidatorCls: Any = Validator
     v: Any = ValidatorCls(RULE_SCHEMA, require_all=False)
-    valid: bool = bool(v.validate(data))
-    if not valid:
-        errors: str = str(v.errors)
-        raise ValueError(f"Rule validation errors: {errors}")
+    if not bool(v.validate(data)):
+        raise ValueError(f"Rule validation errors: {v.errors}")
 
 
 def normalise_rule(rule: dict[str, Any]) -> dict[str, Any]:
-    """
-    Map old field names to the canonical names the script uses.
-
-    detection-rules.yml previously used:
-      cooldown_seconds        -> cooldown
-      alert_message_template  -> template
-    """
     if "cooldown_seconds" in rule and "cooldown" not in rule:
         rule["cooldown"] = rule.pop("cooldown_seconds")
     if "alert_message_template" in rule and "template" not in rule:
@@ -123,12 +116,6 @@ def normalise_rule(rule: dict[str, Any]) -> dict[str, Any]:
 
 
 def load_rules(path: str) -> list[Rule]:
-    """Load and validate detection rules from a YAML file.
-
-    Handles both formats:
-      - bare list:         [{"name": ...}, ...]
-      - wrapped dict:      {"rules": [{"name": ...}, ...]}
-    """
     raw = Path(path).read_text(encoding="utf-8")
     data: Any = yaml.safe_load(raw)
 
@@ -138,7 +125,6 @@ def load_rules(path: str) -> list[Rule]:
         wrapped = cast(dict[str, Any], data)
 
     _validate_with_cerberus(wrapped)
-
     rules: list[Rule] = [normalise_rule(r) for r in wrapped["rules"]]
 
     for rule in rules:
@@ -151,21 +137,17 @@ def load_rules(path: str) -> list[Rule]:
 
 
 # ---------------------------------------------------------------------------
-# Template-based alert rendering (string.Template / $var syntax)
+# Template rendering
 # ---------------------------------------------------------------------------
 def render_alert(template_str: str, context: dict[str, str]) -> str:
-    """Render an alert message using string.Template ($variable syntax)."""
     return Template(template_str).safe_substitute(context)
 
 
 # ---------------------------------------------------------------------------
-# Cooldown dict with pruning — thread-safe via Lock
+# CooldownTracker — thread-safe per-rule suppression
 # ---------------------------------------------------------------------------
 class CooldownTracker:
-    """Tracks per-rule cooldowns and prunes stale entries automatically.
-
-    Thread-safe: a single instance is shared across all watcher threads.
-    """
+    """Tracks per-rule cooldowns and prunes stale entries automatically."""
 
     def __init__(self, max_age: int = 3600) -> None:
         self._last_fired: dict[str, float] = {}
@@ -173,7 +155,6 @@ class CooldownTracker:
         self._lock = threading.Lock()
 
     def _prune(self) -> None:
-        """Caller must hold self._lock."""
         now = time.monotonic()
         expired = [k for k, t in self._last_fired.items() if now - t > self._max_age]
         for k in expired:
@@ -197,71 +178,110 @@ class CooldownTracker:
             self._last_fired[key] = monotonic_time
 
     def fired_keys(self) -> frozenset[str]:
-        """Test helper: returns the set of keys currently being tracked."""
+        """Test helper."""
         with self._lock:
             return frozenset(self._last_fired)
 
 
 # ---------------------------------------------------------------------------
-# inotify-based real-time log tailing with sleep fallback
+# BruteForceDetector — sliding-window per-IP SSH failure counter
+#
+# Tracks failed SSH login attempts per source IP within a rolling time window.
+# Fires a single consolidated HIGH alert when an IP crosses the threshold —
+# far more accurate than the per-line cooldown for real SSH attack scenarios
+# (e.g. Kali → Parrot OS SSH brute-force demonstrations).
 # ---------------------------------------------------------------------------
-def tail_with_inotify(log_path: str, rules: list[Rule], cooldowns: CooldownTracker) -> None:
-    """Watch a log file with inotify (Linux) or poll (other platforms)."""
-    path = Path(log_path)
-    fh: TextIOWrapper = path.open("r", errors="replace")
-    fh.seek(0, 2)
-
-    watcher = InotifyWatcher(str(path.parent))
-    started: bool = watcher.start()
-
-    if not started:
-        logger.warning(
-            "inotify not available (non-Linux or package missing). "
-            "Falling back to 1-second polling."
-        )
-        try:
-            _tail_with_sleep(fh, rules, cooldowns)
-        finally:
-            fh.close()
-        return
-
-    logger.info("inotify watching %s", log_path)
-    try:
-        for raw_event in watcher.iter_events():
-            event: Any = raw_event
-            type_names: list[str] = list(event[1])
-            filename: str = str(event[3])
-
-            if filename != path.name:
-                continue
-            if not any(e in type_names for e in ("IN_MODIFY", "IN_MOVED_TO", "IN_CLOSE_WRITE")):
-                continue
-
-            if "IN_MOVED_TO" in type_names:
-                fh.close()
-                fh = path.open("r", errors="replace")
-                logger.info("Log rotated, re-opened %s", log_path)
-
-            for line in fh:
-                process_line(line.rstrip(), rules, cooldowns)
-    finally:
-        fh.close()
+_SSH_FAIL_RE = re.compile(
+    r"Failed password for (?:invalid user )?\S+ from (?P<ip>\d+\.\d+\.\d+\.\d+)"
+)
 
 
-def _tail_with_sleep(fh: TextIOWrapper, rules: list[Rule], cooldowns: CooldownTracker) -> None:
-    """Fallback polling loop used when inotify is unavailable."""
-    while True:
-        line: str = fh.readline()
-        if line:
-            process_line(line.rstrip(), rules, cooldowns)
-        else:
-            time.sleep(1)
+class BruteForceDetector:
+    """Per-IP sliding-window SSH failure counter.
+
+    Thread-safe: shared across all watcher threads.
+
+    Parameters
+    ----------
+    threshold   : number of failures within the window that triggers an alert
+    window_secs : rolling window size in seconds
+    """
+
+    def __init__(self, threshold: int = 5, window_secs: int = 60) -> None:
+        self.threshold = threshold
+        self.window_secs = window_secs
+        self._events: dict[str, list[float]] = defaultdict(list)
+        self._alerted: set[str] = set()   # IPs already alerted in this window
+        self._lock = threading.Lock()
+
+    def _prune_ip(self, ip: str, now: float) -> None:
+        """Remove timestamps outside the window. Caller must hold self._lock."""
+        cutoff = now - self.window_secs
+        self._events[ip] = [t for t in self._events[ip] if t >= cutoff]
+        # Reset alert flag once the window clears
+        if ip in self._alerted and not self._events[ip]:
+            self._alerted.discard(ip)
+
+    def process(self, line: str) -> tuple[str, int] | None:
+        """
+        Check one log line for a failed SSH login.
+
+        Returns (ip, count) the moment an IP crosses the threshold for the
+        first time in the current window, otherwise returns None.
+        """
+        m = _SSH_FAIL_RE.search(line)
+        if not m:
+            return None
+
+        ip = m.group("ip")
+        now = time.monotonic()
+
+        with self._lock:
+            self._prune_ip(ip, now)
+            self._events[ip].append(now)
+            count = len(self._events[ip])
+
+            if count >= self.threshold and ip not in self._alerted:
+                self._alerted.add(ip)
+                return ip, count
+
+        return None
+
+    # -- Test helpers --------------------------------------------------------
+    def inject_events(self, ip: str, timestamps: list[float]) -> None:
+        """Test helper: directly set timestamps for an IP."""
+        with self._lock:
+            self._events[ip] = list(timestamps)
+
+    def event_count(self, ip: str) -> int:
+        """Test helper: current in-window count for an IP."""
+        now = time.monotonic()
+        with self._lock:
+            self._prune_ip(ip, now)
+            return len(self._events[ip])
 
 
 # ---------------------------------------------------------------------------
-# Core: match a log line against all rules and emit alerts
+# Core: match a log line against all rules + brute-force detector
 # ---------------------------------------------------------------------------
-def process_line(line: str, rules: list[Rule], cooldowns: CooldownTracker) -> None:
+def process_line(
+    line: str,
+    rules: list[Rule],
+    cooldowns: CooldownTracker,
+    brute: BruteForceDetector | None = None,
+) -> None:
+    # -- Sliding-window brute-force check (runs before per-rule matching) --
+    if brute is not None:
+        result = brute.process(line)
+        if result is not None:
+            ip, count = result
+            logger.warning(
+                "BRUTE-FORCE  score=%-3d  severity=HIGH      rule=SSH brute force  "
+                "msg=[ALERT] %d failed SSH logins from %s within %ds window.",
+                10, count, ip, brute.window_secs,
+            )
+
+    # -- Per-rule regex matching --
     for rule in rules:
         regex: re.Pattern[str] = rule["_regex"]
         m = regex.search(line)
@@ -294,7 +314,69 @@ def process_line(line: str, rules: list[Rule], cooldowns: CooldownTracker) -> No
 
 
 # ---------------------------------------------------------------------------
-# Entry point with argparse CLI
+# inotify-based tailing with polling fallback
+# ---------------------------------------------------------------------------
+def tail_with_inotify(
+    log_path: str,
+    rules: list[Rule],
+    cooldowns: CooldownTracker,
+    brute: BruteForceDetector | None = None,
+) -> None:
+    path = Path(log_path)
+    fh: TextIOWrapper = path.open("r", errors="replace")
+    fh.seek(0, 2)
+
+    watcher = InotifyWatcher(str(path.parent))
+    started: bool = watcher.start()
+
+    if not started:
+        logger.warning(
+            "inotify not available — falling back to 1-second polling for %s", log_path
+        )
+        try:
+            _tail_with_sleep(fh, rules, cooldowns, brute)
+        finally:
+            fh.close()
+        return
+
+    logger.info("inotify watching %s", log_path)
+    try:
+        for raw_event in watcher.iter_events():
+            event: Any = raw_event
+            type_names: list[str] = list(event[1])
+            filename: str = str(event[3])
+
+            if filename != path.name:
+                continue
+            if not any(e in type_names for e in ("IN_MODIFY", "IN_MOVED_TO", "IN_CLOSE_WRITE")):
+                continue
+            if "IN_MOVED_TO" in type_names:
+                fh.close()
+                fh = path.open("r", errors="replace")
+                logger.info("Log rotated, re-opened %s", log_path)
+
+            for line in fh:
+                process_line(line.rstrip(), rules, cooldowns, brute)
+    finally:
+        fh.close()
+
+
+def _tail_with_sleep(
+    fh: TextIOWrapper,
+    rules: list[Rule],
+    cooldowns: CooldownTracker,
+    brute: BruteForceDetector | None = None,
+) -> None:
+    while True:
+        line: str = fh.readline()
+        if line:
+            process_line(line.rstrip(), rules, cooldowns, brute)
+        else:
+            time.sleep(1)
+
+
+# ---------------------------------------------------------------------------
+# CLI
 # ---------------------------------------------------------------------------
 DEFAULT_RULES_PATH = "rules/detection-rules.yml"
 
@@ -303,24 +385,15 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         description="SIEM-Lite alert scorer — tails log files and emits scored alerts.",
     )
-    p.add_argument(
-        "--rules",
-        default=DEFAULT_RULES_PATH,
-        metavar="PATH",
-        help=f"Path to detection-rules YAML (default: {DEFAULT_RULES_PATH})",
-    )
-    p.add_argument(
-        "--log",
-        dest="logs",
-        action="append",
-        metavar="PATH",
-        help="Log file to watch (repeatable; auto-detected if omitted)",
-    )
-    p.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable DEBUG-level logging",
-    )
+    p.add_argument("--rules", default=DEFAULT_RULES_PATH, metavar="PATH",
+                   help=f"Path to detection-rules YAML (default: {DEFAULT_RULES_PATH})")
+    p.add_argument("--log", dest="logs", action="append", metavar="PATH",
+                   help="Log file to watch (repeatable; auto-detected if omitted)")
+    p.add_argument("--brute-threshold", type=int, default=5, metavar="N",
+                   help="Failed SSH logins from same IP to trigger brute-force alert (default: 5)")
+    p.add_argument("--brute-window", type=int, default=60, metavar="SECS",
+                   help="Sliding window in seconds for brute-force counting (default: 60)")
+    p.add_argument("--debug", action="store_true", help="Enable DEBUG-level logging")
     return p
 
 
@@ -333,6 +406,14 @@ def main(argv: list[str] | None = None) -> None:
 
     rules = load_rules(str(args.rules))
     cooldowns = CooldownTracker()
+    brute = BruteForceDetector(
+        threshold=args.brute_threshold,
+        window_secs=args.brute_window,
+    )
+    logger.info(
+        "Brute-force detector: threshold=%d failures / %ds window",
+        args.brute_threshold, args.brute_window,
+    )
 
     raw_logs: list[str] | None = args.logs
     log_paths: list[str] = raw_logs if raw_logs is not None else discover_log_paths()
@@ -342,7 +423,7 @@ def main(argv: list[str] | None = None) -> None:
         lp: str = log_path
         t = threading.Thread(
             target=tail_with_inotify,
-            args=(lp, rules, cooldowns),
+            args=(lp, rules, cooldowns, brute),
             daemon=True,
             name=f"watcher-{Path(lp).name}",
         )

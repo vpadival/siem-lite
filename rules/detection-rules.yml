@@ -64,3 +64,12 @@ rules:
     score: 5
     cooldown: 30
     template: "[ALERT] su failure involving user $username."
+  - id: 7
+    name: Successful SSH login
+    description: Detects any successful SSH login (password or publickey).
+    log_source: /var/log/auth.log
+    pattern: '(?i)Accepted (?:password|publickey) for (?P<username>\S+) from (?P<ip>\d+\.\d+\.\d+\.\d+)'
+    severity: low
+    score: 1
+    cooldown: 10
+    template: "[ALERT] Successful SSH login by $username from $ip."
